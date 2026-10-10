@@ -1,4 +1,4 @@
-"""Videonun ilk karesinde kafenin içini çokgen olarak seçer ve zone.json'a kaydeder.
+"""Videonun ilk karesinde kafenin içini çokgen olarak seçer ve configs/zone.json'a kaydeder.
 
 Sol tık: köşe ekle    Sağ tık: son köşeyi geri al
 r: sıfırla    Enter / s: kaydet ve çık    q / ESC: kaydetmeden çık
@@ -11,7 +11,7 @@ import cv2
 import numpy as np
 
 VIDEO = sys.argv[1] if len(sys.argv) > 1 else "videos/kafe.mp4"
-OUT = "zone.json"
+OUT = "configs/zone.json"
 WINDOW = "pick_zone  (sol: kose | sag: geri al | r: sifirla | Enter: kaydet | q: cik)"
 
 cap = cv2.VideoCapture(VIDEO)
@@ -22,8 +22,8 @@ if not ok:
 
 # Referans olsun diye giriş çizgisini de göster
 line = None
-if os.path.exists("line.json"):
-    with open("line.json", encoding="utf-8") as f:
+if os.path.exists("configs/line.json"):
+    with open("configs/line.json", encoding="utf-8") as f:
         cfg = json.load(f)
     line = (tuple(cfg["start"]), tuple(cfg["end"]))
 

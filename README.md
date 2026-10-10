@@ -1,4 +1,31 @@
-# Kafe Kamerası Analizi — Görev 1
+# Arabica YourEye Hackathon
+
+İki görev: **Görev 1** kafe kamerasında kişi sayımı ve cinsiyet tahmini, **Görev 2** trafik
+kamerasında araç sayımı ve plaka tanıma.
+
+## Proje yapısı
+
+```
+├── README.md, requirements.txt
+├── task1_people.py         Görev 1 işleme hattı
+├── app.py                  Görev 1 arayüzü (Gradio)
+├── task2_vehicles.py       Görev 2 işleme hattı
+├── configs/                Görev 1 ayarları: sayım çizgisi, kafe bölgesi, takipçi ayarları
+├── tools/                  Çizgiyi / bölgeyi fareyle seçme araçları
+├── models/                 plate_best.pt (plaka modeli), yolo11m.pt
+├── videos/                 Görev1_Sonuç.mp4, Görev2_Sonuç.mp4 (sonuç videoları)
+└── outputs/
+    ├── gorev1/             ekran görüntüleri, sayım/cinsiyet özeti
+    └── gorev2/             ekran görüntüleri, geçiş tablosu (CSV), plaka kırpımları
+```
+
+Girdi videoları (`videos/kafe.mp4`, `videos/arac.mp4`) boyutları nedeniyle pakete dahil
+değildir; kodu yeniden çalıştırmak için bu isimlerle `videos/` klasörüne koyun. Sonuç
+videoları paket boyutu için 720p'ye sıkıştırılmıştır.
+
+---
+
+# Görev 1 — Kafe Kamerası Analizi
 
 Tavana monteli kafe kamerası görüntüsünde:
 
@@ -11,9 +38,9 @@ Tavana monteli kafe kamerası görüntüsünde:
 
 | | |
 |---|---|
-| Sonuç videosu | `outputs/sonuc_videosu.mp4` |
-| Ekran görüntüleri | `outputs/ekran_*.jpg` |
-| Sayım ve cinsiyet özeti | `outputs/sonuc_ozet.json` |
+| Sonuç videosu | `videos/Görev1_Sonuç.mp4` |
+| Ekran görüntüleri | `outputs/gorev1/ekran_*.jpg` |
+| Sayım ve cinsiyet özeti | `outputs/gorev1/sonuc_ozet.json` |
 
 86 saniyelik videoda (7 farklı sahne) **6 giriş, 4 çıkış, toplam 10 kişi** sayıldı. Her geçiş
 videodan kare kare kontrol edildi; kaçan veya yanlış sayılan geçiş bulunmadı.
@@ -35,7 +62,7 @@ Videoyu `videos/kafe.mp4` olarak koyun.
 - **Arayüz:** `python app.py` → tarayıcıda http://127.0.0.1:7860 açılır. Video seçip **Başlat**'a
   basın; canlı önizleme, sayaçlar, giriş/çıkış tablosu ve sonuç videosu burada görünür.
 - **Komut satırı:** `python task1_people.py --max-seconds 30` (tamamı için `--max-seconds`
-  vermeyin). Tüm ayarlar için `python task1_people.py --help`.
+  vermeyin; sonuç `videos/Görev1_Sonuç.mp4` dosyasına yazılır). Tüm ayarlar için `python task1_people.py --help`.
 
 Model ağırlıkları (YOLO, CLIP) ilk çalıştırmada otomatik indirilir. NVIDIA GPU'lu bir
 bilgisayarda yaklaşık 6–8 FPS çalışır; laptop prize takılıyken daha hızlıdır.
@@ -46,10 +73,10 @@ bilgisayarda yaklaşık 6–8 FPS çalışır; laptop prize takılıyken daha h�
 |---|---|
 | `task1_people.py` | Tüm işleme hattı: tespit, takip, sayım, cinsiyet, çizim |
 | `app.py` | Gradio arayüzü |
-| `line.json` | Sayım çizgisi (kapı açıklığı) |
-| `zone.json` | Kafe içi bölgesi; camın dışındaki yayalar sayılmaz |
-| `pick_line.py`, `pick_zone.py` | Çizgiyi / bölgeyi fareyle yeniden seçmek için araçlar |
-| `trackers/` | Takip ayarları |
+| `configs/line.json` | Sayım çizgisi (kapı açıklığı) |
+| `configs/zone.json` | Kafe içi bölgesi; camın dışındaki yayalar sayılmaz |
+| `configs/trackers/` | Takip ayarları |
+| `tools/pick_line.py`, `tools/pick_zone.py` | Çizgiyi / bölgeyi fareyle yeniden seçmek için araçlar (`python tools/pick_zone.py`) |
 
 ## Nasıl çalışıyor
 
@@ -80,10 +107,10 @@ Trafik kamerası görüntüsünde:
 
 | | |
 |---|---|
-| Sonuç videosu | `outputs/task2_result.mp4` |
-| Ekran görüntüleri | `outputs/screenshots/` |
-| Geçiş tablosu | `outputs/task2_results.csv` |
-| Araç başına en iyi plaka kırpımı | `outputs/plates/<ID>.jpg` |
+| Sonuç videosu | `videos/Görev2_Sonuç.mp4` |
+| Ekran görüntüleri | `outputs/gorev2/ekran_*.jpg` |
+| Geçiş tablosu | `outputs/gorev2/task2_results.csv` |
+| Araç başına en iyi plaka kırpımı | `outputs/gorev2/plates/<ID>.jpg` |
 
 ~5 dakikalık videoda (9.184 kare) çizgiden **353 araç** geçti: 304 otomobil, 37 kamyon,
 7 otobüs, 5 motosiklet. 684 araç için plaka bölgesi bulundu; çizgiyi geçen 353 aracın 156'sında
@@ -96,14 +123,14 @@ Kurulum Görev 1 ile aynıdır; ek olarak `pip install easyocr`. Videoyu `videos
 olarak, plaka modelini `models/plate_best.pt` olarak koyun.
 
 ```bash
-python task2_vehicles.py                    # tüm video -> outputs/task2_result.mp4
+python task2_vehicles.py                    # tüm video -> videos/Görev2_Sonuç.mp4
 python task2_vehicles.py --max-seconds 30   # yalnızca ilk 30 saniye
 python task2_vehicles.py --line-start 0,700 --line-end 1920,700   # sayım çizgisi
 python task2_vehicles.py --model yolo11s.pt # daha hızlı, biraz daha az doğru
 ```
 
 Tüm ayarlar için `python task2_vehicles.py --help`. Çizgi koordinatlarını kare üzerinde
-tıklayarak almak için: `python pick_line.py videos/arac.mp4`.
+tıklayarak almak için: `python tools/pick_line.py videos/arac.mp4`.
 
 ## Kullanılan modeller
 

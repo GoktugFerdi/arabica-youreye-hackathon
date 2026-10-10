@@ -2,11 +2,11 @@
 
 Tespit, karanlık bölgeleri açılmış (CLAHE) bir kopya üzerinde yapılır;
 kutular orijinal kareye çizilir, yani kaydedilen video normal parlaklıktadır.
-zone.json varsa ayak noktası (kutunun alt-ortası) bu çokgenin dışında kalan
+configs/zone.json varsa ayak noktası (kutunun alt-ortası) bu çokgenin dışında kalan
 kişiler (ör. camın dışındaki yayalar) atılır.
 Video farklı saatlerden birleştirilmiş sahnelerden oluşuyor; sahne geçişinde
 takipçi sıfırlanır ki yeni sahnedeki kişi, eski sahnede aynı yerde oturanın ID'sini almasın.
-line.json'daki çizgiden ayak noktası geçen kişiler sayılır: kapıdan içeri (aşağı)
+configs/line.json'daki çizgiden ayak noktası geçen kişiler sayılır: kapıdan içeri (aşağı)
 yürüyen Giriş, dışarı (yukarı) yürüyen Çıkış. Bir ID her yönde en fazla bir kez,
 Toplam'da (çizgiden geçen farklı kişi) da en fazla bir kez sayılır.
 Cinsiyet: kamera yukarıdan baktığı için yüz yerine kişinin tüm kutusu (kenar paylı)
@@ -281,22 +281,22 @@ def reset_tracker(model):
 def build_parser():
     ap = argparse.ArgumentParser()
     ap.add_argument("--video", default="videos/kafe.mp4")
-    ap.add_argument("--output", default="outputs/test1.mp4")
-    ap.add_argument("--model", default="yolo11m.pt")
+    ap.add_argument("--output", default="videos/Görev1_Sonuç.mp4")
+    ap.add_argument("--model", default="models/yolo11m.pt")
     ap.add_argument("--imgsz", type=int, default=1280)
     ap.add_argument("--iou", type=float, default=0.5,
                     help="NMS IoU eşiği; düşük değer çift kutuları azaltır")
-    ap.add_argument("--tracker", default="trackers/bytetrack_cafe.yaml",
-                    help="Alternatif: trackers/botsort_cafe.yaml (ReID'li); ReID YOLO'nun iç "
+    ap.add_argument("--tracker", default="configs/trackers/bytetrack_cafe.yaml",
+                    help="Alternatif: configs/trackers/botsort_cafe.yaml (ReID'li); ReID YOLO'nun iç "
                          "özelliklerini kullandığı için yalnızca --no-augment ile çalışır")
     ap.add_argument("--enhance", action=argparse.BooleanOptionalAction, default=True,
                     help="Tespitten önce karanlık bölgeleri aydınlat")
     ap.add_argument("--augment", action=argparse.BooleanOptionalAction, default=True,
                     help="Test-zamanı çoğaltma (çevirme + çoklu ölçek); karanlık köşedeki, "
                          "sandalye arkasında kalan kişilerin tespit güvenini artırır")
-    ap.add_argument("--zone", default="zone.json",
+    ap.add_argument("--zone", default="configs/zone.json",
                     help="Kafe içi çokgeni; boş bırakılırsa ('') filtre uygulanmaz")
-    ap.add_argument("--line", default="line.json", help="Sayım çizgisi (start/end)")
+    ap.add_argument("--line", default="configs/line.json", help="Sayım çizgisi (start/end)")
     ap.add_argument("--min-cross-frames", type=int, default=10,
                     help="Sayılmak için çizginin öbür tarafında art arda kalınması gereken kare")
     ap.add_argument("--half", action=argparse.BooleanOptionalAction, default=True,

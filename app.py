@@ -46,7 +46,10 @@ def stats_html(counts=(0, 0, 0), fps=0.0, done=0, total=0, status="Hazır"):
 
 
 def list_videos():
-    return sorted(glob.glob("videos/*.mp4") + glob.glob("videos/*.avi"))
+    """videos/ içindeki girdi videoları; sonuç videoları ve tarayıcı kopyaları listelenmez."""
+    files = sorted(glob.glob("videos/*.mp4") + glob.glob("videos/*.avi"))
+    files = [f for f in files if "_Sonuç" not in f and not f.endswith("_web.mp4")]
+    return sorted(files, key=lambda f: "kafe" not in f)  # kafe videosu önce
 
 
 def to_browser_mp4(src):
@@ -113,7 +116,7 @@ with gr.Blocks(title="Kafe Kamerası Analizi") as demo:
     gr.Markdown("# Kafe Kamerası Analizi\n"
                 "Kişi tespiti, takip, kapıdan giriş/çıkış sayımı ve cinsiyet tahmini. "
                 "Sayım çizgisi ve kafe bölgesi bu kamera için ayarlıdır "
-                "(`line.json`, `zone.json`).")
+                "(`configs/line.json`, `configs/zone.json`).")
     with gr.Row():
         with gr.Column(scale=1, min_width=300):
             videos = list_videos()
@@ -123,8 +126,10 @@ with gr.Blocks(title="Kafe Kamerası Analizi") as demo:
             max_seconds = gr.Slider(0, 120, value=30, step=5,
                                     label="İşlenecek süre (sn) · 0 = videonun tamamı")
             with gr.Accordion("Gelişmiş ayarlar", open=False):
-                model = gr.Dropdown(["yolo11n.pt", "yolo11s.pt", "yolo11m.pt"], value="yolo11m.pt",
-                                    label="YOLO modeli (küçük = hızlı, büyük = doğru)")
+                model = gr.Dropdown(
+                    [("yolo11n.pt", "yolo11n.pt"), ("yolo11s.pt", "yolo11s.pt"),
+                     ("yolo11m.pt", "models/yolo11m.pt")],
+                    value="models/yolo11m.pt", label="YOLO modeli (küçük = hızlı, büyük = doğru)")
                 imgsz = gr.Dropdown([960, 1280], value=1280, label="Tespit çözünürlüğü")
                 augment = gr.Checkbox(True, label="Augment (karanlık köşedeki kişiler için; "
                                                   "daha yavaş)")

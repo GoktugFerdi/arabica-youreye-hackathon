@@ -5,13 +5,13 @@ COCO'daki car, motorcycle, bus, truck sınıfları tespit edilir ve ByteTrack il
 toplam, türlere göre sayılar ve FPS gösterilir.
 Her aracın kutusu kırpılıp models/plate_best.pt ile plaka aranır; bulunan plaka yeşil
 kutu ve güven skoruyla çizilir. Her araç ID'si için en yüksek güvenli plaka kırpımı
-outputs/plates/<ID>.jpg olarak kaydedilir.
+outputs/gorev2/plates/<ID>.jpg olarak kaydedilir.
 Plaka okuma: her ID için en fazla 5 kez, o ana kadarki en geniş plaka kırpımı (araç yaklaştıkça
 plaka büyür) kenar payıyla gri tona
 çevrilip 3 kat büyütülerek EasyOCR ile okunur (yalnızca büyük harf ve rakam). Sonuçtan
 yalnızca boşluklar ve harf/rakam dışı karakterler temizlenir. En yüksek OCR güvenli okuma
 o aracın plakası olur ve kutunun altında gösterilir. Çizgiyi geçen her araç video sonunda
-outputs/task2_results.csv'ye yazılır (plaka, geçişten sonra okunsa da en iyi okumayla
+outputs/gorev2/task2_results.csv'ye yazılır (plaka, geçişten sonra okunsa da en iyi okumayla
 yazılsın diye).
 
 Kullanım:
@@ -50,19 +50,19 @@ def parse_point(text):
 def build_parser():
     ap = argparse.ArgumentParser()
     ap.add_argument("--video", default="videos/arac.mp4")
-    ap.add_argument("--output", default="outputs/task2_result.mp4")
-    ap.add_argument("--model", default="yolo11m.pt",
+    ap.add_argument("--output", default="videos/Görev2_Sonuç.mp4")
+    ap.add_argument("--model", default="models/yolo11m.pt",
                     help="Daha hızlı ama daha az doğru: yolo11s.pt veya yolo11n.pt")
     ap.add_argument("--plate-model", default="models/plate_best.pt")
     ap.add_argument("--plate-conf", type=float, default=0.25)
     ap.add_argument("--plate-imgsz", type=int, default=320,
                     help="Plaka modelinin giriş boyutu; araç kırpımları zaten küçük (~150-300 px), "
                          "320 hem ~10 kat hızlı hem 640'tan fazla plaka buluyor")
-    ap.add_argument("--plates-dir", default="outputs/plates")
+    ap.add_argument("--plates-dir", default="outputs/gorev2/plates")
     ap.add_argument("--ocr-max", type=int, default=5, help="Her ID için en fazla OCR denemesi")
     ap.add_argument("--ocr-min-width", type=int, default=40,
                     help="Bundan dar plaka kırpımları okunmaz (uzaktaki araçlar denemeyi harcamasın)")
-    ap.add_argument("--csv", default="outputs/task2_results.csv")
+    ap.add_argument("--csv", default="outputs/gorev2/task2_results.csv")
     ap.add_argument("--tracker", default="bytetrack.yaml")
     ap.add_argument("--line-start", type=parse_point, default=(0, 700),
                     help="Sayım çizgisinin başlangıcı, 'x,y' biçiminde")

@@ -5,11 +5,10 @@ venv/
 # Python önbelleği
 __pycache__/
 
-# Videolar ve model ağırlıkları (büyük dosyalar)
+# Videolar (girdi ve sonuç) ve model ağırlıkları — büyük dosyalar
 videos/
 *.mp4
 *.avi
 *.pt
 
-# outputs/ içindeki json ve ekran görüntüleri (jpg/png) repoya dahil edilir;
-# videolar yukarıdaki *.mp4 / *.avi kurallarıyla hariç tutulur.
+# outputs/ içindeki json, csv ve ekran görüntüleri (jpg) repoya dahil edilir.
