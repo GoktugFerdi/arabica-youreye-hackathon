@@ -63,3 +63,76 @@ bilgisayarda yaklaşık 6–8 FPS çalışır; laptop prize takılıyken daha h�
   yanındaki tezgâhta çalışan kişi sayılmaz.
 - **Cinsiyet:** Her ID için 5 karede bir, en fazla 10 kez tahmin yapılır ve ortalaması alınır;
   ortalama güven %60'ın altındaysa "Belirsiz" yazılır.
+
+---
+
+# Görev 2 — Araç Sayımı ve Plaka Tanıma
+
+Trafik kamerası görüntüsünde:
+
+- **Araç tespiti** — YOLO11m (COCO; yalnızca `car`, `motorcycle`, `bus`, `truck`)
+- **Takip** — ByteTrack ile her araca kalıcı bir ID
+- **Sayım** — çizgiden geçen her araç bir kez sayılır; köşede toplam, türlere göre sayılar ve FPS
+- **Plaka tespiti** — her aracın kutusu kırpılıp kendi eğittiğimiz plaka modeliyle aranır
+- **Plaka okuma** — EasyOCR; her araç için en iyi okuma kutunun altında gösterilir
+
+## Sonuç
+
+| | |
+|---|---|
+| Sonuç videosu | `outputs/task2_result.mp4` |
+| Ekran görüntüleri | `outputs/screenshots/` |
+| Geçiş tablosu | `outputs/task2_results.csv` |
+| Araç başına en iyi plaka kırpımı | `outputs/plates/<ID>.jpg` |
+
+~5 dakikalık videoda (9.184 kare) çizgiden **353 araç** geçti: 304 otomobil, 37 kamyon,
+7 otobüs, 5 motosiklet. 684 araç için plaka bölgesi bulundu; çizgiyi geçen 353 aracın 156'sında
+OCR bir metin okudu, ancak bu okumaların çoğu düşük güvenlidir (bkz. Kısıtlar). Tüm video
+NVIDIA GPU'lu bir dizüstünde ortalama ~18 FPS işlendi.
+
+## Çalıştırma
+
+Kurulum Görev 1 ile aynıdır; ek olarak `pip install easyocr`. Videoyu `videos/arac.mp4`
+olarak, plaka modelini `models/plate_best.pt` olarak koyun.
+
+```bash
+python task2_vehicles.py                    # tüm video -> outputs/task2_result.mp4
+python task2_vehicles.py --max-seconds 30   # yalnızca ilk 30 saniye
+python task2_vehicles.py --line-start 0,700 --line-end 1920,700   # sayım çizgisi
+python task2_vehicles.py --model yolo11s.pt # daha hızlı, biraz daha az doğru
+```
+
+Tüm ayarlar için `python task2_vehicles.py --help`. Çizgi koordinatlarını kare üzerinde
+tıklayarak almak için: `python pick_line.py videos/arac.mp4`.
+
+## Kullanılan modeller
+
+| Aşama | Model |
+|---|---|
+| Araç tespiti | YOLO11m, COCO üzerinde önceden eğitilmiş (araç sınıfları) |
+| Plaka tespiti | Kendi eğittiğimiz YOLO11m plaka modeli — Roboflow Türk plaka veri seti, 5.256 görsel, Google Colab T4 GPU ile eğitildi (`models/plate_best.pt`) |
+| Takip | ByteTrack |
+| Plaka okuma | EasyOCR (yalnızca büyük harf ve rakam) |
+
+## Nasıl çalışıyor
+
+- **Plaka tespiti:** Araç kırpımları küçük olduğu için plaka modeli 320 px girişle çalışır
+  (640'a göre çok daha hızlı ve daha fazla plaka buluyor), güven eşiği 0.25.
+- **Plaka okuma:** Her araç için en fazla 5 kez, o ana kadarki en geniş plaka kırpımı (araç
+  yaklaştıkça plaka büyür) gri tona çevrilip 3 kat büyütülerek okunur. 40 px'ten dar
+  plakalar okunmaz. Sonuçtan yalnızca boşluklar ve harf/rakam dışı karakterler silinir;
+  en yüksek OCR güvenli okuma o aracın plakası olur.
+- **CSV:** Çizgiyi geçen her araç için geçiş saniyesi, ID, tür, araç güveni, plaka ve OCR
+  güveni yazılır. Plaka, araç çizgiyi geçtikten sonra okunsa da tabloya girer.
+
+## Kısıtlar
+
+- Plaka modeli Türk plakalarıyla eğitildi, test videosunda ise yabancı plakalar var. Model
+  plaka bölgelerini yine de tespit ediyor, ancak OCR doğruluğu düşebilir.
+- Bulanık ve uzak araçlarda okuma hataları olabilir; bu videoda plakalar karede yalnızca
+  ~40–55 × 12–15 piksel olduğu için okumaların çoğu güvenilir değildir.
+- YOLO11m, YOLO11n'ye göre daha doğru ama daha yavaştır; daha zayıf donanımda FPS düşebilir.
+
+## Geliştirme önerisi
+
+- Plaka modelini çok ülkeli bir plaka veri setiyle ek eğitimden geçirmek.

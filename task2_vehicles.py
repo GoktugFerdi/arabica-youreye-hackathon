@@ -50,7 +50,7 @@ def parse_point(text):
 def build_parser():
     ap = argparse.ArgumentParser()
     ap.add_argument("--video", default="videos/arac.mp4")
-    ap.add_argument("--output", default="outputs/test2.mp4")
+    ap.add_argument("--output", default="outputs/task2_result.mp4")
     ap.add_argument("--model", default="yolo11m.pt",
                     help="Daha hızlı ama daha az doğru: yolo11s.pt veya yolo11n.pt")
     ap.add_argument("--plate-model", default="models/plate_best.pt")
