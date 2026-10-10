@@ -1,0 +1,13 @@
+# GPU (CUDA 12.8) için PyTorch'u önce kendi index'inden kurun:
+#   pip install torch==2.11.0 torchvision==0.26.0 --index-url https://download.pytorch.org/whl/cu128
+# Ardından:
+#   pip install -r requirements.txt
+torch==2.11.0
+torchvision==0.26.0
+ultralytics==8.4.175
+supervision==0.30.9
+opencv-python==5.0.0.93
+open_clip_torch==3.3.0
+numpy==2.5.2
+pillow==12.3.0
+lap==0.5.13

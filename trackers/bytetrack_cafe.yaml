@@ -1,0 +1,9 @@
+# Kafe videosu için ayarlanmış ByteTrack (varsayılan: ultralytics/cfg/trackers/bytetrack.yaml)
+
+tracker_type: bytetrack
+track_high_thresh: 0.25 # mevcut izleri sürdürmek için yeterli güven
+track_low_thresh: 0.1 # karanlıkta zayıflayan tespitler izi kaybetmesin
+new_track_thresh: 0.5 # varsayılan 0.25; düşük güvenli nesneler (ceket vb.) yeni ID açmasın
+track_buffer: 90 # varsayılan 30; ~3.6 sn (25 FPS) kaybolan kişi aynı ID ile geri dönebilsin
+match_thresh: 0.8
+fuse_score: True

@@ -1,0 +1,15 @@
+# Sanal ortam
+venv/
+.venv/
+
+# Python önbelleği
+__pycache__/
+
+# Videolar ve model ağırlıkları (büyük dosyalar)
+videos/
+*.mp4
+*.avi
+*.pt
+
+# outputs/ içindeki json ve ekran görüntüleri (jpg/png) repoya dahil edilir;
+# videolar yukarıdaki *.mp4 / *.avi kurallarıyla hariç tutulur.

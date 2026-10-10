@@ -1,0 +1,17 @@
+# Kafe videosu için BoT-SORT + ReID (varsayılan: ultralytics/cfg/trackers/botsort.yaml)
+# Eşik ve tampon değerleri bytetrack_cafe.yaml ile aynı; fark yalnızca görünüş eşleştirmesi.
+
+tracker_type: botsort
+track_high_thresh: 0.25
+track_low_thresh: 0.1
+new_track_thresh: 0.5 # düşük güvenli nesneler (ceket vb.) yeni ID açmasın
+track_buffer: 90 # ~3.6 sn (25 FPS) kaybolan kişi aynı ID ile geri dönebilsin
+match_thresh: 0.8
+fuse_score: True
+
+gmc_method: none # kamera sabit; hareket telafisi gereksiz
+
+proximity_thresh: 0.5
+appearance_thresh: 0.8
+with_reid: True # kişileri kıyafet/renk gibi görünüşle de eşleştir
+model: auto # ayrı model indirmeden YOLO'nun kendi özelliklerini kullan
