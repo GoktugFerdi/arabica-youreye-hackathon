@@ -1,0 +1,113 @@
+{
+  "frames": 2159,
+  "elapsed": 279.08,
+  "fps": 7.74,
+  "avg_people": 7.31,
+  "ids": 72,
+  "short_ids": 7,
+  "scene_ids": [
+    14,
+    10,
+    6,
+    8,
+    10,
+    13,
+    11
+  ],
+  "counts": {
+    "giris": 6,
+    "cikis": 4,
+    "toplam": 10
+  },
+  "crossings": [
+    {
+      "id": 6,
+      "yön": "Çıkış",
+      "kare": 121,
+      "saniye": 4.84,
+      "cinsiyet": "Erkek %100",
+      "tahmin": 10
+    },
+    {
+      "id": 20,
+      "yön": "Çıkış",
+      "kare": 394,
+      "saniye": 15.76,
+      "cinsiyet": "Kadın %100",
+      "tahmin": 10
+    },
+    {
+      "id": 32,
+      "yön": "Giriş",
+      "kare": 611,
+      "saniye": 24.44,
+      "cinsiyet": "Erkek %72",
+      "tahmin": 10
+    },
+    {
+      "id": 35,
+      "yön": "Çıkış",
+      "kare": 934,
+      "saniye": 37.36,
+      "cinsiyet": "Erkek %96",
+      "tahmin": 10
+    },
+    {
+      "id": 38,
+      "yön": "Çıkış",
+      "kare": 950,
+      "saniye": 38.0,
+      "cinsiyet": "Erkek %96",
+      "tahmin": 10
+    },
+    {
+      "id": 46,
+      "yön": "Giriş",
+      "kare": 1129,
+      "saniye": 45.16,
+      "cinsiyet": "Erkek %79",
+      "tahmin": 10
+    },
+    {
+      "id": 61,
+      "yön": "Giriş",
+      "kare": 1581,
+      "saniye": 63.24,
+      "cinsiyet": "Kadın %89",
+      "tahmin": 10
+    },
+    {
+      "id": 64,
+      "yön": "Giriş",
+      "kare": 1632,
+      "saniye": 65.28,
+      "cinsiyet": "Kadın %74",
+      "tahmin": 10
+    },
+    {
+      "id": 82,
+      "yön": "Giriş",
+      "kare": 1957,
+      "saniye": 78.28,
+      "cinsiyet": "Erkek %83",
+      "tahmin": 10
+    },
+    {
+      "id": 78,
+      "yön": "Giriş",
+      "kare": 1971,
+      "saniye": 78.84,
+      "cinsiyet": "Erkek %87",
+      "tahmin": 10
+    }
+  ],
+  "timings_ms": {
+    "okuma": 3.8,
+    "ön işleme": 32.3,
+    "tespit + takip": 76.9,
+    "cinsiyet": 11.3,
+    "çizim": 5.6,
+    "yazma": 0.0
+  },
+  "output": "outputs/sonuc_videosu.mp4"
+}

@@ -23,6 +23,8 @@ Kullanım:
 import argparse
 import json
 import os
+import queue
+import threading
 import time
 from collections import deque
 
@@ -130,6 +132,100 @@ class GenderEstimator:
         return gender.cpu().numpy(), head.cpu().numpy()
 
 
+_GENDER_CACHE = {}
+
+
+def get_gender_estimator(arch, pretrained, device):
+    """CLIP modelini bir kez yükler; arayüzde ardışık çalıştırmalarda yeniden kullanılır."""
+    key = (arch, pretrained, device)
+    if key not in _GENDER_CACHE:
+        _GENDER_CACHE[key] = GenderEstimator(arch, pretrained, device)
+    return _GENDER_CACHE[key]
+
+
+class LabelDrawer:
+    """Türkçe karakterli etiketleri PIL ile bir kez çizip önbellekte tutar.
+
+    sv.RichLabelAnnotator her karede tüm kareyi PIL'e çevirdiği için yavaştı (~20 ms);
+    burada yalnızca küçük etiket görüntüleri yapıştırılır.
+    """
+
+    def __init__(self, font, palette=sv.ColorPalette.DEFAULT, pad=6):
+        self.font, self.palette, self.pad = font, palette, pad
+        self.cache = {}
+
+    def _render(self, text, color):
+        key = (text, color.as_bgr())
+        if key not in self.cache:
+            l, t, r, b = self.font.getbbox(text)
+            img = Image.new("RGB", (r + 2 * self.pad, b - t + 2 * self.pad), color.as_rgb())
+            ImageDraw.Draw(img).text((self.pad, self.pad - t), text, font=self.font, fill="white")
+            self.cache[key] = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+        return self.cache[key]
+
+    def annotate(self, frame, det, labels):
+        H, W = frame.shape[:2]
+        for (x1, y1, x2, y2), tid, text in zip(det.xyxy.astype(int), det.tracker_id, labels):
+            img = self._render(text, self.palette.by_idx(int(tid)))
+            h, w = img.shape[:2]
+            if w > W or h > H:
+                continue
+            x = min(max(x1, 0), W - w)
+            y = y1 - h if y1 - h >= 0 else min(max(y1, 0), H - h)  # kare dışına taşmasın
+            frame[y:y + h, x:x + w] = img
+        return frame
+
+
+def threaded_reader(cap, total, maxsize=8):
+    """Kareleri arka planda okur; GPU çalışırken disk/çözme beklenmez."""
+    q = queue.Queue(maxsize=maxsize)
+    stop = threading.Event()
+
+    def run():
+        for _ in range(total):
+            if stop.is_set():
+                break
+            ok, frame = cap.read()
+            if not ok:
+                break
+            q.put(frame)
+        q.put(None)
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    try:
+        while (frame := q.get()) is not None:
+            yield frame
+    finally:  # erken kapatılırsa iş parçacığını durdur; cap.release() ondan sonra güvenli
+        stop.set()
+        while thread.is_alive():
+            try:
+                q.get(timeout=0.1)
+            except queue.Empty:
+                pass
+
+
+class ThreadedWriter:
+    """Kareleri arka planda video dosyasına yazar."""
+
+    def __init__(self, writer, maxsize=8):
+        self.writer, self.q = writer, queue.Queue(maxsize=maxsize)
+        self.thread = threading.Thread(target=self._run, daemon=True)
+        self.thread.start()
+
+    def _run(self):
+        while (frame := self.q.get()) is not None:
+            self.writer.write(frame)
+
+    def write(self, frame):
+        self.q.put(frame)
+
+    def release(self):
+        self.q.put(None)
+        self.thread.join()
+        self.writer.release()
+
+
 def drop_contained(det, thresh):
     """Alanının `thresh` oranı daha büyük bir kutunun içinde kalan kutuları atar.
 
@@ -182,7 +278,7 @@ def reset_tracker(model):
     tracker._ids = ids
 
 
-def main():
+def build_parser():
     ap = argparse.ArgumentParser()
     ap.add_argument("--video", default="videos/kafe.mp4")
     ap.add_argument("--output", default="outputs/test1.mp4")
@@ -227,13 +323,20 @@ def main():
                     help="Ortalama güven bunun altındaysa 'Belirsiz' yazılır")
     ap.add_argument("--crop-margin", type=float, default=0.10,
                     help="Kırpılan kutuya her kenardan eklenecek pay (kutu boyutuna oranla)")
-    args = ap.parse_args()
+    return ap
 
+
+def process(args, log=print):
+    """Videoyu işler; her kare için bir durum sözlüğü üretir (arayüz canlı önizleme için kullanır).
+
+    Ara kareler: {"i", "total", "frame" (işaretli BGR kare), "counts", "fps"}.
+    Son öğe: {"done": True, "summary": {...}} — sayım, cinsiyet ve aşama süreleri.
+    """
     device = 0 if torch.cuda.is_available() else "cpu"
     model = YOLO(args.model)
     clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
-    gender = GenderEstimator(args.clip_arch, args.clip_pretrained,
-                             "cuda" if device == 0 else "cpu")
+    gender = get_gender_estimator(args.clip_arch, args.clip_pretrained,
+                                  "cuda" if device == 0 else "cpu")
     gender_sum = {}  # takip ID'si -> olasılık toplamı [erkek, kadın]
     head_sum = {}  # takip ID'si -> olasılık toplamı [başörtüsü, şapka, açık baş, kapüşon]
     gender_n = {}  # takip ID'si -> yapılan tahmin sayısı
@@ -243,7 +346,7 @@ def main():
         with open(args.zone, encoding="utf-8") as f:
             polygon = np.array(json.load(f)["polygon"])
         zone = sv.PolygonZone(polygon, triggering_anchors=(sv.Position.BOTTOM_CENTER,))
-        print(f"Bölge filtresi: {args.zone} ({len(polygon)} köşe)")
+        log(f"Bölge filtresi: {args.zone} ({len(polygon)} köşe)")
 
     with open(args.line, encoding="utf-8") as f:
         line_cfg = json.load(f)
@@ -255,13 +358,13 @@ def main():
                             triggering_anchors=(sv.Position.BOTTOM_CENTER,),
                             minimum_crossing_threshold=args.min_cross_frames)
     counted_in, counted_out = set(), set()
-    print(f"Sayım çizgisi: {p1} -> {p2}")
+    log(f"Sayım çizgisi: {p1} -> {p2}")
     font = load_font(56)
     small_font = load_font(24)
 
     cap = cv2.VideoCapture(args.video)
     if not cap.isOpened():
-        raise SystemExit(f"Video açılamadı: {args.video}")
+        raise RuntimeError(f"Video açılamadı: {args.video}")
     fps = cap.get(cv2.CAP_PROP_FPS)
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -270,13 +373,15 @@ def main():
         total = min(total, int(args.max_seconds * fps))
 
     os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
-    writer = cv2.VideoWriter(args.output, cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
+    writer = ThreadedWriter(
+        cv2.VideoWriter(args.output, cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h)))
+    # YOLO kareyi zaten imgsz'ye küçültüyor; aydınlatmayı o boyutta yapmak hem hızlı hem
+    # modelin gördüğü görüntüyü değiştirmiyor. Kutular sonra orijinal boyuta ölçeklenir.
+    det_scale = min(1.0, args.imgsz / max(w, h))
+    det_size = (round(w * det_scale), round(h * det_scale))
 
     box_annotator = sv.BoxAnnotator(color_lookup=sv.ColorLookup.TRACK)
-    # RichLabelAnnotator PIL ile çizer; "ı" ve "·" gibi karakterler düzgün görünür
-    label_annotator = sv.RichLabelAnnotator(color_lookup=sv.ColorLookup.TRACK,
-                                            font_path=find_font_path(), font_size=20,
-                                            smart_position=True)  # kare dışına taşmasın
+    label_drawer = LabelDrawer(load_font(20))
 
     id_frames = {}  # takip ID'si -> görüldüğü kare sayısı
     scene_ids = [set()]  # her sahnede görülen ID'ler
@@ -298,99 +403,151 @@ def main():
             return "Belirsiz"
         return f"{GENDER_NAMES[k]} %{avg[k] * 100:.0f}"
 
+    timings = {}  # aşama adı -> toplam süre (sn)
+    stage_start = [0.0]
+
+    def tick(name):
+        """Önceki tick'ten bu yana geçen süreyi `name` aşamasına yazar."""
+        now = time.perf_counter()
+        timings[name] = timings.get(name, 0.0) + now - stage_start[0]
+        stage_start[0] = now
+
+    events = []  # (ID, yön, kare)
     start = time.time()
-    for i in range(total):
-        ok, frame = cap.read()
-        if not ok:
-            break
+    i = -1
+    stage_start[0] = time.perf_counter()
+    frames = threaded_reader(cap, total)
+    try:
+        for i, frame in enumerate(frames):
+            tick("okuma")
 
-        gray = small_gray(frame)
-        if prev_gray is not None and np.mean(np.abs(gray - prev_gray)) > args.cut_thresh:
-            reset_tracker(model)
-            scene_ids.append(set())
-            print(f"Sahne geçişi: kare {i} ({i / fps:.2f} sn), takipçi sıfırlandı", flush=True)
-        prev_gray = gray
+            small = cv2.resize(frame, det_size, interpolation=cv2.INTER_AREA) \
+                if det_scale < 1.0 else frame
+            gray = small_gray(small)
+            if prev_gray is not None and np.mean(np.abs(gray - prev_gray)) > args.cut_thresh:
+                reset_tracker(model)
+                scene_ids.append(set())
+                log(f"Sahne geçişi: kare {i} ({i / fps:.2f} sn), takipçi sıfırlandı")
+            prev_gray = gray
+            source = enhance(small, clahe) if args.enhance else small
+            tick("ön işleme")
 
-        source = enhance(frame, clahe) if args.enhance else frame
-        result = model.track(source, persist=True, tracker=args.tracker,
-                             classes=[PERSON], imgsz=args.imgsz, iou=args.iou,
-                             augment=args.augment,
-                             quantize=16 if args.half and device != "cpu" else None,
-                             device=device, verbose=False)[0]
-        det = sv.Detections.from_ultralytics(result)
-        if det.tracker_id is None:  # bu karede takip edilen kimse yok
-            det = sv.Detections.empty()
-            det.tracker_id = np.empty(0, dtype=int)
-        if zone is not None:
-            det = det[zone.trigger(det)]
-        det = drop_contained(det, args.contain_thresh)
-        for tid in det.tracker_id.tolist():
-            id_frames[tid] = id_frames.get(tid, 0) + 1
-            scene_ids[-1].add(tid)
-        n_boxes += len(det)
+            result = model.track(source, persist=True, tracker=args.tracker,
+                                 classes=[PERSON], imgsz=args.imgsz, iou=args.iou,
+                                 augment=args.augment,
+                                 quantize=16 if args.half and device != "cpu" else None,
+                                 device=device, verbose=False)[0]
+            tick("tespit + takip")
+            det = sv.Detections.from_ultralytics(result)
+            if det.tracker_id is None:  # bu karede takip edilen kimse yok
+                det = sv.Detections.empty()
+                det.tracker_id = np.empty(0, dtype=int)
+            if det_scale < 1.0:  # küçültülmüş karedeki kutuları orijinal koordinatlara taşı
+                det.xyxy = det.xyxy / det_scale
+            if zone is not None:
+                det = det[zone.trigger(det)]
+            det = drop_contained(det, args.contain_thresh)
+            for tid in det.tracker_id.tolist():
+                id_frames[tid] = id_frames.get(tid, 0) + 1
+                scene_ids[-1].add(tid)
+            n_boxes += len(det)
 
-        # Cinsiyet: ID'nin 1., 6., 11. ... karesinde, en fazla gender_max kez
-        due = [j for j, tid in enumerate(det.tracker_id.tolist())
-               if (id_frames[tid] - 1) % args.gender_every == 0
-               and gender_n.get(tid, 0) < args.gender_max]
-        crops = [crop_with_margin(frame, det.xyxy[j], args.crop_margin) for j in due]
-        due = [j for j, c in zip(due, crops) if c.size > 0]
-        if due:
-            g_probs, h_probs = gender.predict([c for c in crops if c.size > 0])
-            for j, g, hd in zip(due, g_probs, h_probs):
-                tid = int(det.tracker_id[j])
-                gender_sum[tid] = gender_sum.get(tid, np.zeros(2)) + g
-                head_sum[tid] = head_sum.get(tid, np.zeros(len(hd))) + hd
-                gender_n[tid] = gender_n.get(tid, 0) + 1
+            # Cinsiyet: ID'nin 1., 6., 11. ... karesinde, en fazla gender_max kez
+            due = [j for j, tid in enumerate(det.tracker_id.tolist())
+                   if (id_frames[tid] - 1) % args.gender_every == 0
+                   and gender_n.get(tid, 0) < args.gender_max]
+            crops = [crop_with_margin(frame, det.xyxy[j], args.crop_margin) for j in due]
+            due = [j for j, c in zip(due, crops) if c.size > 0]
+            if due:
+                g_probs, h_probs = gender.predict([c for c in crops if c.size > 0])
+                for j, g, hd in zip(due, g_probs, h_probs):
+                    tid = int(det.tracker_id[j])
+                    gender_sum[tid] = gender_sum.get(tid, np.zeros(2)) + g
+                    head_sum[tid] = head_sum.get(tid, np.zeros(len(hd))) + hd
+                    gender_n[tid] = gender_n.get(tid, 0) + 1
+            tick("cinsiyet")
 
-        crossed_in, crossed_out = line_zone.trigger(det)
-        for tid in det.tracker_id[crossed_in].tolist():
-            if tid not in counted_in:
-                counted_in.add(tid)
-                print(f"Giriş: #{tid} (kare {i}, {i / fps:.2f} sn)", flush=True)
-        for tid in det.tracker_id[crossed_out].tolist():
-            if tid not in counted_out:
-                counted_out.add(tid)
-                print(f"Çıkış: #{tid} (kare {i}, {i / fps:.2f} sn)", flush=True)
+            crossed_in, crossed_out = line_zone.trigger(det)
+            for tid in det.tracker_id[crossed_in].tolist():
+                if tid not in counted_in:
+                    counted_in.add(tid)
+                    events.append((tid, "Giriş", i))
+                    log(f"Giriş: #{tid} (kare {i}, {i / fps:.2f} sn)")
+            for tid in det.tracker_id[crossed_out].tolist():
+                if tid not in counted_out:
+                    counted_out.add(tid)
+                    events.append((tid, "Çıkış", i))
+                    log(f"Çıkış: #{tid} (kare {i}, {i / fps:.2f} sn)")
 
-        if zone is not None:
-            cv2.polylines(frame, [zone.polygon], True, (0, 255, 0), 1)
-        labels = [f"ID {tid} · {gender_label(tid)}" for tid in det.tracker_id.tolist()]
-        frame = box_annotator.annotate(frame, det)
-        frame = label_annotator.annotate(frame, det, labels=labels)
-        cv2.line(frame, p1, p2, (0, 255, 255), 4)
-        for p in (p1, p2):
-            cv2.circle(frame, p, 8, (0, 255, 255), -1)
-        panel_h = draw_panel(frame, [
-            (f"Giriş: {len(counted_in)}", (80, 230, 80)),
-            (f"Çıkış: {len(counted_out)}", (255, 90, 90)),
-            (f"Toplam: {len(counted_in | counted_out)}", (255, 255, 255)),
-        ], font)
-        frame_times.append(time.time())
-        if len(frame_times) > 1:
-            live_fps = (len(frame_times) - 1) / (frame_times[-1] - frame_times[0])
-            draw_panel(frame, [(f"FPS: {live_fps:.1f}", (255, 255, 255))], small_font,
-                       pad=10, y_offset=panel_h + 10)
-        draw_panel(frame, [(DISCLAIMER, (230, 230, 230))], small_font, corner="bl", pad=10)
-        writer.write(frame)
+            if zone is not None:
+                cv2.polylines(frame, [zone.polygon], True, (0, 255, 0), 1)
+            labels = [f"ID {tid} · {gender_label(tid)}" for tid in det.tracker_id.tolist()]
+            frame = box_annotator.annotate(frame, det)
+            frame = label_drawer.annotate(frame, det, labels)
+            cv2.line(frame, p1, p2, (0, 255, 255), 4)
+            for p in (p1, p2):
+                cv2.circle(frame, p, 8, (0, 255, 255), -1)
+            panel_h = draw_panel(frame, [
+                (f"Giriş: {len(counted_in)}", (80, 230, 80)),
+                (f"Çıkış: {len(counted_out)}", (255, 90, 90)),
+                (f"Toplam: {len(counted_in | counted_out)}", (255, 255, 255)),
+            ], font)
+            frame_times.append(time.time())
+            live_fps = 0.0
+            if len(frame_times) > 1:
+                live_fps = (len(frame_times) - 1) / (frame_times[-1] - frame_times[0])
+                draw_panel(frame, [(f"FPS: {live_fps:.1f}", (255, 255, 255))], small_font,
+                           pad=10, y_offset=panel_h + 10)
+            draw_panel(frame, [(DISCLAIMER, (230, 230, 230))], small_font, corner="bl", pad=10)
+            tick("çizim")
+            writer.write(frame)
+            tick("yazma")
 
-        if (i + 1) % 100 == 0:
-            print(f"{i + 1}/{total} kare", flush=True)
-
-    cap.release()
-    writer.release()
+            yield {"i": i, "total": total, "frame": frame, "fps": live_fps,
+                   "counts": (len(counted_in), len(counted_out), len(counted_in | counted_out))}
+            stage_start[0] = time.perf_counter()  # arayüzün harcadığı süre aşamalara yazılmasın
+    finally:  # arayüzden durdurulsa da video dosyası düzgün kapansın
+        frames.close()  # önce okuma iş parçacığı dursun
+        cap.release()
+        writer.release()
+    n = i + 1
     elapsed = time.time() - start
-    print(f"İşlenen kare: {i + 1}, süre: {elapsed:.1f} sn ({(i + 1) / elapsed:.1f} FPS)")
-    print(f"Kare başına ortalama kişi: {n_boxes / (i + 1):.1f}")
-    short = sum(1 for n in id_frames.values() if n < fps)
-    print(f"Toplam farklı takip ID'si: {len(id_frames)} (1 sn'den kısa görünen: {short})")
-    print("Sahne başına ID: " + ", ".join(str(len(s)) for s in scene_ids))
-    print(f"Giriş: {len(counted_in)}  Çıkış: {len(counted_out)}  "
-          f"Toplam (farklı kişi): {len(counted_in | counted_out)}")
-    for tid in sorted(counted_in | counted_out):
-        yon = "/".join(n for n, s in (("Giriş", counted_in), ("Çıkış", counted_out)) if tid in s)
-        print(f"  ID {tid} ({yon}): {gender_label(tid)} ({gender_n.get(tid, 0)} tahmin)")
-    print(f"Kaydedildi: {args.output}")
+    yield {"done": True, "summary": {
+        "frames": n,
+        "elapsed": elapsed,
+        "fps": n / elapsed if elapsed else 0.0,
+        "avg_people": n_boxes / n if n else 0.0,
+        "ids": len(id_frames),
+        "short_ids": sum(1 for c in id_frames.values() if c < fps),
+        "scene_ids": [len(s) for s in scene_ids],
+        "counts": (len(counted_in), len(counted_out), len(counted_in | counted_out)),
+        "crossings": [{"id": tid, "yön": d, "kare": k, "saniye": round(k / fps, 2),
+                       "cinsiyet": gender_label(tid), "tahmin": gender_n.get(tid, 0)}
+                      for tid, d, k in events],
+        "timings_ms": {k: v / n * 1000 for k, v in timings.items()} if n else {},
+        "output": args.output,
+    }}
+
+
+def main():
+    args = build_parser().parse_args()
+    for ev in process(args, log=lambda m: print(m, flush=True)):
+        if not ev.get("done"):
+            if (ev["i"] + 1) % 100 == 0:
+                print(f"{ev['i'] + 1}/{ev['total']} kare", flush=True)
+            continue
+        s = ev["summary"]
+        print(f"İşlenen kare: {s['frames']}, süre: {s['elapsed']:.1f} sn ({s['fps']:.1f} FPS)")
+        print(f"Kare başına ortalama kişi: {s['avg_people']:.1f}")
+        print(f"Toplam farklı takip ID'si: {s['ids']} (1 sn'den kısa görünen: {s['short_ids']})")
+        print("Sahne başına ID: " + ", ".join(map(str, s["scene_ids"])))
+        print("Giriş: {}  Çıkış: {}  Toplam (farklı kişi): {}".format(*s["counts"]))
+        for c in s["crossings"]:
+            print(f"  ID {c['id']} ({c['yön']}, {c['saniye']} sn): {c['cinsiyet']} "
+                  f"({c['tahmin']} tahmin)")
+        print("Kare başına aşama süreleri: " + ", ".join(
+            f"{k} {v:.0f} ms" for k, v in s["timings_ms"].items()))
+        print(f"Kaydedildi: {s['output']}")
 
 
 if __name__ == "__main__":

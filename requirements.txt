@@ -11,3 +11,6 @@ open_clip_torch==3.3.0
 numpy==2.5.2
 pillow==12.3.0
 lap==0.5.13
+# Arayüz (app.py) ve tarayıcıda oynatılabilir H.264 video için
+gradio==6.30.0
+imageio-ffmpeg==0.6.0
